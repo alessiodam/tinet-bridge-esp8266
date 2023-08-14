@@ -2,6 +2,8 @@
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ArduinoOTA.h>
+#include <ArduinoHttpClient.h>
+#include <ArduinoJson.h>
 
 #define WIFI_SSID "wifissidhere"        // temporary, will be on calc soon
 #define WIFI_PASSWORD "wifipasshere"    // temporary, will be on calc soon
@@ -18,6 +20,8 @@ bool serial_connected = false;
 bool toggle_LED = false;
 
 WiFiClient tcpwificlient;
+// WiFiClient httpwificlient;
+// HTTPClient goodhttpclient;
 ESP8266WebServer webserver(80);
 
 unsigned long ledChangeTime = 0;
@@ -43,7 +47,8 @@ void setup() {
 
   if (ENABLE_WEB_SERVER == true) {
     webserver.on("/", HTTP_GET, handleRoot);
-    // webserver.on("/restart", HTTP_GET, handleRestart);
+    webserver.on("/support", HTTP_GET, handleSupportPage);
+    webserver.on("/copyright", HTTP_GET, handleCopyrightPage);
     webserver.begin();
   }
 
@@ -62,22 +67,58 @@ void loop() {
 
 void handleRoot() {
   String html = "<html><head>";
-  html += "<style>body{font-family: Arial, sans-serif;}";
-  html += ".container{text-align: center; margin-top: 20px;}";
-  html += ".status{font-weight: bold; color: #007BFF;}";
-  html += ".btn{background-color: #007BFF; color: white; padding: 10px 20px;";
-  html += "border: none; text-align: center; text-decoration: none; display: inline-block;";
-  html += "font-size: 16px; margin: 4px 2px; cursor: pointer;}";
-  html += ".counter{margin-top: 20px;}</style>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+  html += "<link rel='icon' href='https://tinet.tkbstudios.com/favicon.ico' type='image/x-icon'>";
+  html += "<style>body{font-family: Arial, sans-serif; background-color: black; color: green; margin: 0;}";
+  html += ".container{padding: 20px;}";
+  html += ".dashboard{display: flex; flex-direction: column; align-items: center; background-color: #1c1c1c; padding: 20px; border-radius: 10px; box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.5);}";
+  html += ".dashboard-header{display: flex; justify-content: space-between; align-items: center;}";
+  html += ".dashboard-title{font-size: 24px; font-weight: bold;}";
+  html += ".dashboard-content{width: 100%;}";
+  html += ".dashboard-section{margin: 10px;}";
+  html += ".dashboard-data{font-size: 18px;}";
+  html += "</style>";
   html += "</head><body><div class='container'>";
-  html += "<h1>ESP8266 Bridge Stats</h1>";
-  html += "<p class='status'>TCP Connected: " + String(tcp_connected) + "</p>";
-  html += "<p class='status'>Serial Connected: " + String(serial_connected) + "</p>";
-  html += "<p class='status'>LED Blink Interval: " + String(ledBlinkInterval) + " ms</p>";
-  html += "<p class='status'>Transferred Packets: " + String(transferredPackets) + "</p>";
-  html += "<p class='status'>Calc ID: " + calcID + "</p>";
-  html += "<p class='status'>Username: " + username + "</p>";
-  // html += "<p><a class='btn' href='/restart'>Restart ESP</a></p>";
+  html += "<div class='dashboard'>";
+  html += "<div class='dashboard-header'>";
+  html += "<p class='dashboard-title'>TINET ESP8266 Bridge</p>";
+  html += "</div>";
+  html += "<div class='dashboard-content'>";
+  html += "<div class='dashboard-section'><p class='dashboard-data status'>TCP Connected: " + String(tcp_connected) + "</p></div>";
+  html += "<div class='dashboard-section'><p class='dashboard-data status'>Serial Connected: " + String(serial_connected) + "</p></div>";
+  html += "<div class='dashboard-section'><p class='dashboard-data'>LED Blink Interval: " + String(ledBlinkInterval) + " ms</p></div>";
+  html += "<div class='dashboard-section'><p class='dashboard-data'>Transferred Packets: " + String(transferredPackets) + "</p></div>";
+  html += "<div class='dashboard-section'><p class='dashboard-data'>Calc ID: " + calcID + "</p></div>";
+  html += "<div class='dashboard-section'><p class='dashboard-data'>Username: " + username + "</p></div>";
+  html += "</div>";
+  html += "</div></body></html>";
+  webserver.send(200, "text/html", html);
+}
+
+void handleSupportPage() {
+  String html = "<html><head>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+  html += "<style>body{font-family: Arial, sans-serif; background-color: black; color: green; margin: 0;}";
+  html += ".container{padding: 20px; text-align: center;}";
+  html += ".support-link{color: #007BFF; text-decoration: none;}";
+  html += "</style>";
+  html += "</head><body><div class='container'>";
+  html += "<h1>Support Page</h1>";
+  html += "<p>If you need assistance, join our Discord server:</p>";
+  html += "<a class='support-link' href='https://discord.gg/f63fmqtvWb' target='_blank'>Join Discord</a>";
+  html += "</div></body></html>";
+  webserver.send(200, "text/html", html);
+}
+
+void handleCopyrightPage() {
+  String html = "<html><head>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+  html += "<style>body{font-family: Arial, sans-serif; background-color: black; color: green; margin: 0;}";
+  html += ".container{padding: 20px;}";
+  html += "</style>";
+  html += "</head><body><div class='container'>";
+  html += "<h1>Copyright Page</h1>";
+  html += "<p>&copy; 2023 Your Company Name. All rights reserved.</p>";
   html += "</div></body></html>";
   webserver.send(200, "text/html", html);
 }
@@ -94,7 +135,9 @@ void connectToTCP() {
     Serial.write("bridgeConnected");
   } else {
     Serial.write("TCP_CONNECT_ERROR");
+    toggle_LED = true;
     tcp_connected = false;
+    delay(50);
   }
 }
 
@@ -189,3 +232,4 @@ void connectWiFi(String ssidtoconnect, String passwordtouseforconnect) {
   }
   Serial.write("WIFI_CONNECTED");
 }
+
