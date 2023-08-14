@@ -3,8 +3,8 @@
 #include <ESP8266WebServer.h>
 #include <ArduinoOTA.h>
 
-#define WIFI_SSID = "wifissidhere"        // temporary, will be on calc soon
-#define WIFI_PASSWORD = "wifipasshere"    // temporary, will be on calc soon
+#define WIFI_SSID "wifissidhere"        // temporary, will be on calc soon
+#define WIFI_PASSWORD "wifipasshere"    // temporary, will be on calc soon
 #define MAX_WIFI_CONNECT_ATTEMPTS 10
 #define ENABLE_WEB_SERVER true
 
@@ -176,13 +176,13 @@ void blinkLED(unsigned long onTime, unsigned long offTime) {
 
 void connectWiFi(String ssidtoconnect, String passwordtouseforconnect) {
   WiFi.begin(ssidtoconnect, passwordtouseforconnect);
-  int wifi_connect_attempts = 0
+  int wifi_connect_attempts = 0;
   Serial.write("WIFI_CONNECTING");
   while (WiFi.status() != WL_CONNECTED) {
     if (wifi_connect_attempts >= MAX_WIFI_CONNECT_ATTEMPTS)
     {
-      Serial.write("WIFI_CONNECT_FAILED")
-      break
+      Serial.write("WIFI_CONNECT_FAILED");
+      break;
     }
     blinkLED(1000, 1000);
     wifi_connect_attempts += 1;
