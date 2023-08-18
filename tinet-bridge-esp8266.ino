@@ -39,7 +39,12 @@ void setup() {
   digitalWrite(BUILTIN_LED, HIGH);
 
   Serial.begin(9600);
-  
+
+  do
+  {
+    digitalWrite(BUILTIN_LED, HIGH);
+  } while (!Serial);
+  digitalWrite(BUILTIN_LED, LOW);
   delay(500);
   Serial.write("ESP8266");
   delay(1000);
@@ -232,4 +237,3 @@ void connectWiFi(String ssidtoconnect, String passwordtouseforconnect) {
   }
   Serial.write("WIFI_CONNECTED");
 }
-
