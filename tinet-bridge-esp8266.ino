@@ -1,239 +1,144 @@
 #include <ESP8266WiFi.h>
-#include <WiFiClient.h>
-#include <ESP8266WebServer.h>
-#include <ArduinoOTA.h>
-#include <ArduinoHttpClient.h>
-#include <ArduinoJson.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <EEPROM.h>
 
-#define WIFI_SSID "wifissidhere"        // temporary, will be on calc soon
-#define WIFI_PASSWORD "wifipasshere"    // temporary, will be on calc soon
-#define MAX_WIFI_CONNECT_ATTEMPTS 10
-#define ENABLE_WEB_SERVER true
+const char* ssid = "your-ssid";
+const char* password = "your-password";
+const int serialBaudRate = 115200;
+const int tcpServerPort = 2052;
 
-#define BUILTIN_LED 2  // NodeMCU and ESP8266
+WiFiServer tcpServer(tcpServerPort);
+WiFiClient tcpClient;
 
-const char* serverAddress = "tinethub.tkbstudios.com";
-const int serverPort = 2052;
+AsyncWebServer server(80);
 
-bool tcp_connected = false;
-bool serial_connected = false;
-bool toggle_LED = false;
+struct Settings {
+  char password[64];
+  unsigned long transferredPackets;
+  float totalMegabytes;
+  int wifiSpeedLimit;  // in kbps
+};
 
-WiFiClient tcpwificlient;
-// WiFiClient httpwificlient;
-// HTTPClient goodhttpclient;
-ESP8266WebServer webserver(80);
-
-unsigned long ledChangeTime = 0;
-const unsigned long ledChangeInterval = 100;
-unsigned long ledBlinkInterval = 50;
-
-unsigned long transferredPackets = 0;
-
-String calcID = "";
-String username = "";
-
+Settings settings;
 
 void setup() {
-  pinMode(BUILTIN_LED, OUTPUT);
-  digitalWrite(BUILTIN_LED, HIGH);
-
-  Serial.begin(9600);
-
-  do
-  {
-    digitalWrite(BUILTIN_LED, HIGH);
-  } while (!Serial);
-  digitalWrite(BUILTIN_LED, LOW);
-  delay(500);
-  Serial.write("ESP8266");
-  delay(1000);
-  connectWiFi(WIFI_SSID, WIFI_PASSWORD);
-
-  if (ENABLE_WEB_SERVER == true) {
-    webserver.on("/", HTTP_GET, handleRoot);
-    webserver.on("/support", HTTP_GET, handleSupportPage);
-    webserver.on("/copyright", HTTP_GET, handleCopyrightPage);
-    webserver.begin();
-  }
-
-  ArduinoOTA.begin();
+  Serial.begin(serialBaudRate);
+  EEPROM.begin(sizeof(Settings));
+  loadSettings();
+  connectToWiFi();
+  setupAsyncServer();
 }
 
 void loop() {
-  ArduinoOTA.handle();
-
-  handleSerialTask();
-  handleTcpTask();
-  toggleLED();
-
-  webserver.handleClient();
-}
-
-void handleRoot() {
-  String html = "<html><head>";
-  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<link rel='icon' href='https://tinet.tkbstudios.com/favicon.ico' type='image/x-icon'>";
-  html += "<style>body{font-family: Arial, sans-serif; background-color: black; color: green; margin: 0;}";
-  html += ".container{padding: 20px;}";
-  html += ".dashboard{display: flex; flex-direction: column; align-items: center; background-color: #1c1c1c; padding: 20px; border-radius: 10px; box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.5);}";
-  html += ".dashboard-header{display: flex; justify-content: space-between; align-items: center;}";
-  html += ".dashboard-title{font-size: 24px; font-weight: bold;}";
-  html += ".dashboard-content{width: 100%;}";
-  html += ".dashboard-section{margin: 10px;}";
-  html += ".dashboard-data{font-size: 18px;}";
-  html += "</style>";
-  html += "</head><body><div class='container'>";
-  html += "<div class='dashboard'>";
-  html += "<div class='dashboard-header'>";
-  html += "<p class='dashboard-title'>TINET ESP8266 Bridge</p>";
-  html += "</div>";
-  html += "<div class='dashboard-content'>";
-  html += "<div class='dashboard-section'><p class='dashboard-data status'>TCP Connected: " + String(tcp_connected) + "</p></div>";
-  html += "<div class='dashboard-section'><p class='dashboard-data status'>Serial Connected: " + String(serial_connected) + "</p></div>";
-  html += "<div class='dashboard-section'><p class='dashboard-data'>LED Blink Interval: " + String(ledBlinkInterval) + " ms</p></div>";
-  html += "<div class='dashboard-section'><p class='dashboard-data'>Transferred Packets: " + String(transferredPackets) + "</p></div>";
-  html += "<div class='dashboard-section'><p class='dashboard-data'>Calc ID: " + calcID + "</p></div>";
-  html += "<div class='dashboard-section'><p class='dashboard-data'>Username: " + username + "</p></div>";
-  html += "</div>";
-  html += "</div></body></html>";
-  webserver.send(200, "text/html", html);
-}
-
-void handleSupportPage() {
-  String html = "<html><head>";
-  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<style>body{font-family: Arial, sans-serif; background-color: black; color: green; margin: 0;}";
-  html += ".container{padding: 20px; text-align: center;}";
-  html += ".support-link{color: #007BFF; text-decoration: none;}";
-  html += "</style>";
-  html += "</head><body><div class='container'>";
-  html += "<h1>Support Page</h1>";
-  html += "<p>If you need assistance, join our Discord server:</p>";
-  html += "<a class='support-link' href='https://discord.gg/f63fmqtvWb' target='_blank'>Join Discord</a>";
-  html += "</div></body></html>";
-  webserver.send(200, "text/html", html);
-}
-
-void handleCopyrightPage() {
-  String html = "<html><head>";
-  html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<style>body{font-family: Arial, sans-serif; background-color: black; color: green; margin: 0;}";
-  html += ".container{padding: 20px;}";
-  html += "</style>";
-  html += "</head><body><div class='container'>";
-  html += "<h1>Copyright Page</h1>";
-  html += "<p>&copy; 2023 Your Company Name. All rights reserved.</p>";
-  html += "</div></body></html>";
-  webserver.send(200, "text/html", html);
-}
-
-void handleRestart() {
-  webserver.send(200, "text/plain", "Restarting ESP...");
-  delay(1000);
-  ESP.restart();
-}
-
-void connectToTCP() {
-  if (tcpwificlient.connect(serverAddress, serverPort)) {
-    tcp_connected = true;
-    Serial.write("bridgeConnected");
+  if (tcpClient.connected()) {
+    handleSerialToTCP();
+    handleTCPToSerial();
   } else {
-    Serial.write("TCP_CONNECT_ERROR");
-    toggle_LED = true;
-    tcp_connected = false;
-    delay(50);
+    handleSerialConnection();
   }
 }
 
-void handleTcpTask() {
-  if (!tcp_connected) {
-    if (!tcpwificlient.connected()) {
-      connectToTCP();
-    }
-    return;
-  }
+void connectToWiFi() {
+  Serial.println("Connecting to WiFi");
+  WiFi.begin(ssid, password);
 
-  if (tcpwificlient.connected()) {
-    while (tcpwificlient.available() && Serial.availableForWrite()) {
-      char c = tcpwificlient.read();
-      if (c != '\0') {
-        Serial.write(c);
-        toggle_LED = true;
-        transferredPackets++;
-      }
-    }
-    tcpwificlient.flush();
-  } else {
-    tcp_connected = false;
-    tcpwificlient.stop();
-    Serial.write("TCP_DISCONNECTED");
-    blinkLED(50, 50);
-  }
-}
-
-void handleSerialTask() {
-  while (Serial.available()) {
-    String command = Serial.readStringUntil('\n');
-    command.trim();
-    
-    if (tcp_connected) {
-      if (command.startsWith("LOGIN:")) {
-        int calcIDStart = 6;
-        int calcIDEnd = command.indexOf(":", calcIDStart);
-        int usernameStart = calcIDEnd + 1;
-        int usernameEnd = command.indexOf(":", usernameStart);
-        
-        if (calcIDEnd >= 0 && usernameStart >= 0 && usernameEnd >= 0) {
-          calcID = command.substring(calcIDStart, calcIDEnd);
-          username = command.substring(usernameStart, usernameEnd);
-        }
-        tcpwificlient.write(command.c_str());
-        if (!command.isEmpty()) {
-          toggle_LED = true;
-          transferredPackets++;
-        }
-        Serial.flush();
-      } else {
-        tcpwificlient.write(command.c_str());
-        if (!command.isEmpty()) {
-          toggle_LED = true;
-          transferredPackets++;
-        }
-        Serial.flush();
-      }
-    }
-  }
-}
-
-void toggleLED() {
-  if (toggle_LED == true) {
-    digitalWrite(BUILTIN_LED, !digitalRead(BUILTIN_LED));
-    delay(ledBlinkInterval);
-    digitalWrite(BUILTIN_LED, !digitalRead(BUILTIN_LED));
-    toggle_LED = false;
-  }
-}
-
-void blinkLED(unsigned long onTime, unsigned long offTime) {
-  digitalWrite(BUILTIN_LED, LOW);
-  delay(onTime);
-  digitalWrite(BUILTIN_LED, HIGH);
-  delay(offTime);
-}
-
-void connectWiFi(String ssidtoconnect, String passwordtouseforconnect) {
-  WiFi.begin(ssidtoconnect, passwordtouseforconnect);
-  int wifi_connect_attempts = 0;
-  Serial.write("WIFI_CONNECTING");
   while (WiFi.status() != WL_CONNECTED) {
-    if (wifi_connect_attempts >= MAX_WIFI_CONNECT_ATTEMPTS)
-    {
-      Serial.write("WIFI_CONNECT_FAILED");
-      break;
-    }
-    blinkLED(1000, 1000);
-    wifi_connect_attempts += 1;
+    delay(1000);
+    Serial.println("Connecting...");
   }
-  Serial.write("WIFI_CONNECTED");
+
+  Serial.println("WiFi connected");
+  Serial.println("IP address: " + WiFi.localIP().toString());
+}
+
+void setupAsyncServer() {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (strlen(settings.password) == 0) {
+      request->send(200, "text/html", "Please set a password <a href='/setpassword'>here</a>.");
+    } else {
+      String html = "<html><body>";
+      html += "<h2>Management Page</h2>";
+      html += "<p>Transferred Packets: " + String(settings.transferredPackets) + "</p>";
+      html += "<p>Total Megabytes: " + String(settings.totalMegabytes) + "</p>";
+      html += "<p><a href='https://tinet.tkbstudios.com/dashboard' target='_blank'>TINET Dashboard</a></p>";
+      html += "<form action='/setwifispeed' method='post'>";
+      html += "<label>WiFi Speed Limit (kbps): </label>";
+      html += "<input type='number' name='speed' value='" + String(settings.wifiSpeedLimit) + "'/>";
+      html += "<input type='submit' value='Set'/></form>";
+      html += "<form action='/reset' method='post'>";
+      html += "<input type='submit' value='Reset to Factory Settings' onclick='return confirm(\"Are you sure?\");'/></form>";
+      html += "</body></html>";
+      request->send(200, "text/html", html);
+    }
+  });
+
+  server.on("/setpassword", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(200, "text/html", "<html><body><form action='/savepassword' method='post'><label>Password: </label><input type='password' name='password'/><input type='submit' value='Set'/></form></body></html>");
+  });
+
+  server.on("/savepassword", HTTP_POST, [](AsyncWebServerRequest *request){
+    if (request->hasParam("password", true)) {
+      String newPassword = request->getParam("password", true)->value();
+      newPassword.toCharArray(settings.password, sizeof(settings.password));
+      saveSettings();
+    }
+    request->send(200, "text/html", "Password set successfully. <a href='/'>Go to Management Page</a>");
+  });
+
+  server.on("/setwifispeed", HTTP_POST, [](AsyncWebServerRequest *request){
+    if (request->hasParam("speed", true)) {
+      settings.wifiSpeedLimit = request->getParam("speed", true)->value().toInt();
+      saveSettings();
+    }
+    request->redirect("/");
+  });
+
+  server.on("/reset", HTTP_POST, [](AsyncWebServerRequest *request){
+    resetToFactorySettings();
+    request->send(200, "text/html", "Reset to factory settings successful. <a href='/'>Go to Management Page</a>");
+  });
+
+  server.begin();
+}
+
+void handleSerialConnection() {
+  WiFiClient serialClient = tcpServer.available();
+  if (serialClient) {
+    Serial.println("Serial device connected");
+    tcpClient = serialClient;
+    tcpClient.setTimeout(5);
+  }
+}
+
+void handleSerialToTCP() {
+  if (tcpClient.available()) {
+    String tcpData = tcpClient.readStringUntil('\n');
+    settings.transferredPackets++;
+    settings.totalMegabytes += tcpData.length() / 1024.0 / 1024.0;  // Assuming 1 character is roughly 1 byte
+    Serial.println("Transfer to TINET: " + tcpData);
+  }
+}
+
+void handleTCPToSerial() {
+  if (Serial.available()) {
+    String serialData = Serial.readStringUntil('\n');
+    tcpClient.println(serialData);
+    Serial.println("Transfer to calculator: " + serialData);
+  }
+}
+
+void loadSettings() {
+  EEPROM.get(0, settings);
+}
+
+void saveSettings() {
+  EEPROM.put(0, settings);
+  EEPROM.commit();
+}
+
+void resetToFactorySettings() {
+  memset(&settings, 0, sizeof(settings));
+  EEPROM.put(0, settings);
+  EEPROM.commit();
 }
