@@ -17,7 +17,6 @@ struct Settings {
   char password[64];
   unsigned long transferredPackets;
   float totalMegabytes;
-  int wifiSpeedLimit;  // in kbps
 };
 
 Settings settings;
@@ -61,10 +60,9 @@ void setupAsyncServer() {
       html += "<h2>Management Page</h2>";
       html += "<p>Transferred Packets: " + String(settings.transferredPackets) + "</p>";
       html += "<p>Total Megabytes: " + String(settings.totalMegabytes) + "</p>";
-      html += "<p><a href='https://tinet.tkbstudios.com/dashboard' target='_blank'>TINET Dashboard</a></p>";
-      html += "<form action='/setwifispeed' method='post'>";
-      html += "<label>WiFi Speed Limit (kbps): </label>";
-      html += "<input type='number' name='speed' value='" + String(settings.wifiSpeedLimit) + "'/>";
+      html += "<form action='/setpassword' method='post'>";
+      html += "<label>Password: </label>";
+      html += "<input type='password' name='password'/>";
       html += "<input type='submit' value='Set'/></form>";
       html += "<form action='/reset' method='post'>";
       html += "<input type='submit' value='Reset to Factory Settings' onclick='return confirm(\"Are you sure?\");'/></form>";
@@ -84,14 +82,6 @@ void setupAsyncServer() {
       saveSettings();
     }
     request->send(200, "text/html", "Password set successfully. <a href='/'>Go to Management Page</a>");
-  });
-
-  server.on("/setwifispeed", HTTP_POST, [](AsyncWebServerRequest *request){
-    if (request->hasParam("speed", true)) {
-      settings.wifiSpeedLimit = request->getParam("speed", true)->value().toInt();
-      saveSettings();
-    }
-    request->redirect("/");
   });
 
   server.on("/reset", HTTP_POST, [](AsyncWebServerRequest *request){
