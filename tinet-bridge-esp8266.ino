@@ -169,6 +169,7 @@ void setupAsyncServer() {
   server.begin();
 }
 
+// TODO: make this non-blocking
 void handleTCPToSerial() {
   if (wifi_client.available() && Serial.available()) {
     String serial_data = Serial.readStringUntil('\n');
@@ -180,12 +181,18 @@ void handleTCPToSerial() {
   }
 }
 
+// TODO: make this non-blocking
 void handleSerialToTCP() {
-  if (Serial.available()) {
+  while (Serial.available()) {
     String serial_data = Serial.readStringUntil('\n');
-    // transfer data over
-    // show the user that data is being transferred
-    flashLED(BLUE_LED, 10);
+    serial_data.trim();
+    // for some reason, this spams the serial device with TCP_CONNECTED
+    if (!tcp_client.connected() && serial_data == "CONNECT_TCP") {
+      if (tcp_client.connect(TINET_HUB_HOST, TINET_HUB_PORT)) {
+        Serial.println("TCP_CONNECTED");
+      }
+    }
+    Serial.flush();
   }
 }
 
