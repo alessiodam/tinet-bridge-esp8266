@@ -25,5 +25,5 @@ jobs:
           cli-compile-flags: |
             - -e
 
-      - name: ls build dir
-        run: ls build
+      - name: ls dir
+        run: ls
