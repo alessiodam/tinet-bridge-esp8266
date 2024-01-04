@@ -15,7 +15,6 @@ jobs:
           sketch-paths: |
             - "./tinet-bridge-esp8266.ino"
           librairies: |
-            - name: ESPAsyncTCP
             - name: ESP8266WiFi
             - name: ESP8266httpUpdate
             - name: ESP8266WebServer
