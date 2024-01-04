@@ -1,5 +1,6 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
 #include <ESP8266httpUpdate.h>
@@ -7,6 +8,8 @@
 #define SERIAL_BAUDRATE 115200
 #define TINET_HUB_HOST "tinethub.tkbstudios.com"
 #define TINET_HUB_PORT 2052
+
+#define NO_OTA_NETWORK
 
 uint8_t YELLOW_LED = D2;
 uint8_t BLUE_LED = D5;
@@ -93,7 +96,6 @@ void setup() {
   Serial.println("LOCAL_IP_ADDR:" + WiFi.localIP().toString());
   
   server.on("/", HTTP_GET, handleRoot);
-  server.on("/setpassword", HTTP_GET, handleSetPasswordPage);
   server.on("/savepassword", HTTP_POST, handleSavePassword);
   server.on("/reset", HTTP_POST, handleReset);
   server.on("/update", HTTP_POST, handleUpdate);
@@ -171,11 +173,6 @@ void handleRoot() {
   }
 }
 
-void handleSetPasswordPage() {
-  flashLED(GREEN_LED, 10);
-  server.send(200, "text/html", "<html><body><form action='/savepassword' method='post'><label>Password: </label><input type='password' name='password'/><input type='submit' value='Set'/></form></body></html>");
-}
-
 void handleSavePassword() {
   flashLED(GREEN_LED, 10);
   String newPassword = server.arg("password").c_str();
@@ -197,7 +194,7 @@ void handleUpdate() {
   digitalWrite(RED_LED, HIGH);
   delay(250);
   
-  t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_client, "github.com", 443, "/tkbstudios/tinet-bridge-esp8266/releases/download/latest/tinet-bridge-esp8266.bin");
+  t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_client, "github.com", 80, "/tkbstudios/tinet-bridge-esp8266/releases/latest/download/tinet-bridge-esp8266.ino.bin");
   switch (update_ret) {
     case HTTP_UPDATE_FAILED:
       Serial.println("BRIDGE_UPDATE_FAILED");
@@ -213,10 +210,13 @@ void handleUpdate() {
       server.send(200, "text/html", "Update success!");
       break;
     default:
-      Serial.println("BRIDGE_UPDATE_FAILED");
+      Serial.println("BRIDGE_UPDATE_FAILED_UNKNOWN");
       server.send(200, "text/html", "Update failed.");
       break;
   }
+  digitalWrite(BLUE_LED, LOW);
+  digitalWrite(GREEN_LED, LOW);
+  digitalWrite(RED_LED, LOW);
 }
 
 // TODO: make this non-blocking
