@@ -23,7 +23,7 @@ jobs:
             - name: ESP8266httpUpdate
             - name: ESP8266WebServer
           cli-compile-flags: |
-            -e
+            - -e
 
       - name: ls build dir
         run: ls build
