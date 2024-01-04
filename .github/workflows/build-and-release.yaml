@@ -1,5 +1,8 @@
-name: compile and release
-on: push
+name: build and release
+on:
+  push:
+  workflow_dispatch:
+
 jobs:
   compile-and-release:
     runs-on: ubuntu-latest
