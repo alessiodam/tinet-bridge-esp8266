@@ -5,8 +5,6 @@
 #include <EEPROM.h>
 #include <ESP8266httpUpdate.h>
 
-#define WIFI_SSID "ssid-here"
-#define WIFI_PASS "password-here"
 #define SERIAL_BAUDRATE 115200
 #define TINET_HUB_HOST "tinethub.tkbstudios.com"
 #define TINET_HUB_PORT 2052
@@ -26,6 +24,8 @@ IPAddress google_dns(8, 8, 8, 8);
 AsyncWebServer server(80);
 
 struct Settings {
+  char wifi_ssid[32];
+  char wifi_pass[64];
   char password[64];
   unsigned long transferred_packets;
   float total_mb;
@@ -56,9 +56,26 @@ void setup() {
   
   loadSettings();
 
+  float eepromdataaddresszero;
+  EEPROM.get(0, eepromdataaddresszero);
+
+  if (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero)) {
+    digitalWrite(GREEN_LED, HIGH);
+    Serial.println("BRIDGE_SET_UP_WIFI");
+
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP("TINETbridge", "12345678");
+    
+    setupSetupAsyncServer();
+    while (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero)) {
+      Serial.println("BRIDGE_WIFI_SETUP_WAITING");
+      delay(1000);
+    }
+  }
+
   //WiFi.setDNS(cloudflare_dns, google_dns);
   Serial.println("WIFI_CONNECTING");
-  wifi_status = WiFi.begin(WIFI_SSID, WIFI_PASS);
+  wifi_status = WiFi.begin(settings.wifi_ssid, settings.wifi_pass);
   
   while (wifi_status != WL_CONNECTED) {
     wifi_status = WiFi.status();
@@ -81,9 +98,51 @@ void loop() {
   if (tcp_client.connected()) {
     Serial.println("TCP_CONNECTED");
   } else if (Serial.available() && !tcp_client.connected()) {
-    Serial.println("wait for calc");
     handleSerialToTCP();
   }
+}
+
+void setupSetupAsyncServer() {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    flashLED(GREEN_LED, 10);
+    String html = "<html><body>";
+    html += "<h2>TINET Bridge WiFi Setup</h2>";
+    html += "<form action='/saveconfig' method='post'>";
+    html += "<label>SSID (max. 32 chars): </label>";
+    html += "<input type='text' name='ssid'/><br>";
+    html += "<label>Password (max. 64 chars): </label>";
+    html += "<input type='password' name='password'/><br>";
+    html += "<input type='submit' value='Set'/></form><br><br><br>";
+    html += "<form action='/reset' method='post'>";
+    html += "<input type='submit' value='Reset to Factory Settings' onclick='return confirm(\"Are you sure?\");'/></form>";
+    html += "</body></html>";
+    request->send(200, "text/html", html);
+  });
+
+  server.on("/saveconfig", HTTP_POST, [](AsyncWebServerRequest *request){
+    flashLED(GREEN_LED, 10);
+    if (request->hasParam("ssid", true) && request->hasParam("password", true)) {
+      String newSSID = request->getParam("ssid", true)->value();
+      String newPassword = request->getParam("password", true)->value();
+      newSSID.toCharArray(settings.wifi_ssid, sizeof(settings.wifi_ssid));
+      newPassword.toCharArray(settings.wifi_pass, sizeof(settings.wifi_pass));
+      saveSettings();
+    }
+    String html = "WiFi set up success, your bridge will reboot and connect to wifi<b>";
+    html += "If WiFi connect failed after 10 seconds, your bridge will boot up again in setup mode and you will need to re-do the setup steps";
+    request->send(200, "text/html", html);
+  });
+
+  server.on("/reset", HTTP_POST, [](AsyncWebServerRequest *request){
+    flashLED(GREEN_LED, 10);
+    digitalWrite(RED_LED, HIGH);
+    resetToFactorySettings();
+    delay(1000);
+    digitalWrite(RED_LED, LOW);
+    request->send(200, "text/html", "Reset to factory settings successful. <a href='/'>Go to Management Page</a>");
+  });
+
+  server.begin();
 }
 
 void setupAsyncServer() {
