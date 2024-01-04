@@ -36,7 +36,7 @@ jobs:
 
       - name: Release
         uses: softprops/action-gh-release@v1
-        if: "contains(github.event.head_commit.message, 'release')"
+        if: "contains(github.event.head_commit.message, 'releasebin')"
         with:
           files: build/esp8266.esp8266.nodemcuv2/tinet-bridge-esp8266.ino.bin
           tag_name: ${{ github.run_number }}
