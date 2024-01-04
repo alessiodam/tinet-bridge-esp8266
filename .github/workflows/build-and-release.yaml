@@ -10,7 +10,7 @@ jobs:
         run: mkdir build
 
       - name: Compile and release
-        uses: arduino/compile-sketches@v1
+        uses: arduino/compile-sketches@v1.1.0
         with:
           platforms: |
             - source-url: "http://arduino.esp8266.com/stable/package_esp8266com_index.json"
