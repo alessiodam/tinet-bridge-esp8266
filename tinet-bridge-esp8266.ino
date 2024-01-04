@@ -1,6 +1,6 @@
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
-#include <ESPAsyncWebSrv.h>
+#include <ESP8266WebServer.h>
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
 #include <ESP8266httpUpdate.h>
@@ -21,7 +21,7 @@ WiFiClient tcp_client;
 IPAddress cloudflare_dns(1, 1, 1, 1);
 IPAddress google_dns(8, 8, 8, 8);
 
-AsyncWebServer server(80);
+ESP8266WebServer server(80);
 
 struct Settings {
   char wifi_ssid[32];
@@ -63,13 +63,17 @@ void setup() {
     digitalWrite(GREEN_LED, HIGH);
     Serial.println("BRIDGE_SET_UP_WIFI");
 
+    WiFi.disconnect();
     WiFi.mode(WIFI_AP);
     WiFi.softAP("TINETbridge", "12345678");
     
-    setupSetupAsyncServer();
+    server.on("/", HTTP_GET, handleSetupRoot);
+    server.on("/saveconfig", HTTP_POST, handleSetupSaveConfig);
+    server.on("/reset", HTTP_POST, handleReset);
+    server.begin();
+    
     while (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero)) {
-      Serial.println("BRIDGE_WIFI_SETUP_WAITING");
-      delay(1000);
+      server.handleClient();
     }
   }
 
@@ -91,10 +95,16 @@ void setup() {
   digitalWrite(YELLOW_LED, HIGH);
   Serial.println("LOCAL_IP_ADDR:" + WiFi.localIP().toString());
   
-  setupAsyncServer();
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/setpassword", HTTP_GET, handleSetPasswordPage);
+  server.on("/savepassword", HTTP_POST, handleSavePassword);
+  server.on("/reset", HTTP_POST, handleReset);
+  server.on("/update", HTTP_POST, handleUpdate);
+  server.begin();
 }
 
 void loop() {
+  server.handleClient();
   if (tcp_client.connected()) {
     Serial.println("TCP_CONNECTED");
   } else if (Serial.available() && !tcp_client.connected()) {
@@ -102,130 +112,112 @@ void loop() {
   }
 }
 
-void setupSetupAsyncServer() {
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    flashLED(GREEN_LED, 10);
+void handleSetupRoot() {
+  flashLED(GREEN_LED, 10);
+  String html = "<html><body>";
+  html += "<h2>TINET Bridge WiFi Setup</h2>";
+  html += "<form action='/saveconfig' method='post'>";
+  html += "<label>SSID (max. 32 chars): </label>";
+  html += "<input type='text' name='ssid'/><br>";
+  html += "<label>Password (max. 64 chars): </label>";
+  html += "<input type='password' name='password'/><br>";
+  html += "<input type='submit' value='Set'/></form><br><br><br>";
+  html += "<form action='/reset' method='post'>";
+  html += "<input type='submit' value='Reset to Factory Settings' onclick='return confirm(\"Are you sure?\");'/></form>";
+  html += "</body></html>";
+  server.send(200, "text/html", html);
+}
+
+void handleSetupSaveConfig() {
+  flashLED(GREEN_LED, 10);
+  
+  String newSSID = server.arg("ssid").c_str();
+  String newPassword = server.arg("password").c_str();;
+  newSSID.toCharArray(settings.wifi_ssid, sizeof(settings.wifi_ssid));
+  newPassword.toCharArray(settings.wifi_pass, sizeof(settings.wifi_pass));
+  saveSettings();
+  
+  String html = "WiFi set up success, your bridge will reboot and connect to wifi<b>";
+  html += "If WiFi connect failed after 10 seconds, your bridge will boot up again in setup mode and you will need to re-do the setup steps";
+  server.send(200, "text/html", html);
+  ESP.restart();
+}
+
+void handleReset() {
+  flashLED(GREEN_LED, 10);
+  digitalWrite(RED_LED, HIGH);
+  resetToFactorySettings();
+  delay(1000);
+  digitalWrite(RED_LED, LOW);
+  server.send(200, "text/html", "Reset to factory settings successful. <a href='/'>Go to Management Page</a>");
+}
+
+void handleRoot() {
+  flashLED(GREEN_LED, 10);
+  if (strlen(settings.password) == 0) {
+    server.send(200, "text/html", "Please set a password <a href='/setpassword'>here</a>.");
+  } else {
     String html = "<html><body>";
-    html += "<h2>TINET Bridge WiFi Setup</h2>";
-    html += "<form action='/saveconfig' method='post'>";
-    html += "<label>SSID (max. 32 chars): </label>";
-    html += "<input type='text' name='ssid'/><br>";
-    html += "<label>Password (max. 64 chars): </label>";
-    html += "<input type='password' name='password'/><br>";
-    html += "<input type='submit' value='Set'/></form><br><br><br>";
+    html += "<h2>Management Page</h2>";
+    html += "<p>Transferred Packets: " + String(settings.transferred_packets) + "</p>";
+    html += "<p>Total Megabytes: " + String(settings.total_mb) + "</p>";
+    html += "<form action='/setpassword' method='post'>";
+    html += "<label>Password (please do this on your local network for better security! Max 64 chars.): </label>";
+    html += "<input type='password' name='password'/>";
+    html += "<input type='submit' value='Set'/></form>";
     html += "<form action='/reset' method='post'>";
     html += "<input type='submit' value='Reset to Factory Settings' onclick='return confirm(\"Are you sure?\");'/></form>";
     html += "</body></html>";
-    request->send(200, "text/html", html);
-  });
-
-  server.on("/saveconfig", HTTP_POST, [](AsyncWebServerRequest *request){
-    flashLED(GREEN_LED, 10);
-    if (request->hasParam("ssid", true) && request->hasParam("password", true)) {
-      String newSSID = request->getParam("ssid", true)->value();
-      String newPassword = request->getParam("password", true)->value();
-      newSSID.toCharArray(settings.wifi_ssid, sizeof(settings.wifi_ssid));
-      newPassword.toCharArray(settings.wifi_pass, sizeof(settings.wifi_pass));
-      saveSettings();
-    }
-    String html = "WiFi set up success, your bridge will reboot and connect to wifi<b>";
-    html += "If WiFi connect failed after 10 seconds, your bridge will boot up again in setup mode and you will need to re-do the setup steps";
-    request->send(200, "text/html", html);
-  });
-
-  server.on("/reset", HTTP_POST, [](AsyncWebServerRequest *request){
-    flashLED(GREEN_LED, 10);
-    digitalWrite(RED_LED, HIGH);
-    resetToFactorySettings();
-    delay(1000);
-    digitalWrite(RED_LED, LOW);
-    request->send(200, "text/html", "Reset to factory settings successful. <a href='/'>Go to Management Page</a>");
-  });
-
-  server.begin();
+    server.send(200, "text/html", html);
+  }
 }
 
-void setupAsyncServer() {
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    flashLED(GREEN_LED, 10);
-    if (strlen(settings.password) == 0) {
-      request->send(200, "text/html", "Please set a password <a href='/setpassword'>here</a>.");
-    } else {
-      String html = "<html><body>";
-      html += "<h2>Management Page</h2>";
-      html += "<p>Transferred Packets: " + String(settings.transferred_packets) + "</p>";
-      html += "<p>Total Megabytes: " + String(settings.total_mb) + "</p>";
-      html += "<form action='/setpassword' method='post'>";
-      html += "<label>Password (please do this on your local network for better security! Max 64 chars.): </label>";
-      html += "<input type='password' name='password'/>";
-      html += "<input type='submit' value='Set'/></form>";
-      html += "<form action='/reset' method='post'>";
-      html += "<input type='submit' value='Reset to Factory Settings' onclick='return confirm(\"Are you sure?\");'/></form>";
-      html += "</body></html>";
-      request->send(200, "text/html", html);
-    }
-  });
+void handleSetPasswordPage() {
+  flashLED(GREEN_LED, 10);
+  server.send(200, "text/html", "<html><body><form action='/savepassword' method='post'><label>Password: </label><input type='password' name='password'/><input type='submit' value='Set'/></form></body></html>");
+}
 
-  server.on("/setpassword", HTTP_GET, [](AsyncWebServerRequest *request){
-    flashLED(GREEN_LED, 10);
-    request->send(200, "text/html", "<html><body><form action='/savepassword' method='post'><label>Password: </label><input type='password' name='password'/><input type='submit' value='Set'/></form></body></html>");
-  });
+void handleSavePassword() {
+  flashLED(GREEN_LED, 10);
+  String newPassword = server.arg("password").c_str();
+  newPassword.toCharArray(settings.password, sizeof(settings.password));
+  saveSettings();
+  server.send(200, "text/html", "Password set successfully. <a href='/'>Go to Management Page</a>");
+}
 
-  server.on("/savepassword", HTTP_POST, [](AsyncWebServerRequest *request){
-    flashLED(GREEN_LED, 10);
-    if (request->hasParam("password", true)) {
-      String newPassword = request->getParam("password", true)->value();
-      newPassword.toCharArray(settings.password, sizeof(settings.password));
-      saveSettings();
-    }
-    request->send(200, "text/html", "Password set successfully. <a href='/'>Go to Management Page</a>");
-  });
-
-  server.on("/reset", HTTP_POST, [](AsyncWebServerRequest *request){
-    flashLED(GREEN_LED, 10);
-    digitalWrite(RED_LED, HIGH);
-    resetToFactorySettings();
-    delay(1000);
-    digitalWrite(RED_LED, LOW);
-    request->send(200, "text/html", "Reset to factory settings successful. <a href='/'>Go to Management Page</a>");
-  });
-
-  server.on("/update", HTTP_POST, [](AsyncWebServerRequest *request) {
-    // IN DEVELOPMENT
-    digitalWrite(BLUE_LED, HIGH);
-    delay(250);
-    digitalWrite(GREEN_LED, HIGH);
-    delay(250);
-    digitalWrite(YELLOW_LED, HIGH);
-    delay(250);
-    digitalWrite(RED_LED, HIGH);
-    delay(250);
-
-    Serial.println("BRIDGE_UPDATING");
-
-    t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_client, "github.com", 443, "/tkbstudios/tinet-bridge-esp8266/releases/download/latest/tinet-bridge-esp8266.bin");
-    switch (update_ret) {
-      case HTTP_UPDATE_FAILED:
-        Serial.println("BRIDGE_UPDATE_FAILED");
-        request->send(200, "text/html", "Update failed.");
-        break;
-      case HTTP_UPDATE_NO_UPDATES:
-        Serial.println("BRIDGE_NO_UPDATES_AVAILABLE");
-        request->send(200, "text/html", "No updates available!");
-        break;
-      case HTTP_UPDATE_OK:
-        // might not get called because the update function reboots the ESP..
-        Serial.println("BRIDGE_UPDATE_SUCCESS");
-        request->send(200, "text/html", "Update success!");
-        break;
-      default:
-        Serial.println("BRIDGE_UPDATE_FAILED");
-        request->send(200, "text/html", "Update failed.");
-        break;
-    }
-  });
-
-  server.begin();
+void handleUpdate() {
+  // IN DEVELOPMENT
+  digitalWrite(BLUE_LED, HIGH);
+  delay(250);
+  digitalWrite(GREEN_LED, HIGH);
+  delay(250);
+  digitalWrite(YELLOW_LED, HIGH);
+  delay(250);
+  digitalWrite(RED_LED, HIGH);
+  delay(250);
+  
+  Serial.println("BRIDGE_UPDATING");
+  
+  t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_client, "github.com", 443, "/tkbstudios/tinet-bridge-esp8266/releases/download/latest/tinet-bridge-esp8266.bin");
+  switch (update_ret) {
+    case HTTP_UPDATE_FAILED:
+      Serial.println("BRIDGE_UPDATE_FAILED");
+      server.send(200, "text/html", "Update failed.");
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("BRIDGE_NO_UPDATES_AVAILABLE");
+      server.send(200, "text/html", "No updates available!");
+      break;
+    case HTTP_UPDATE_OK:
+      // might not get called because the update function reboots the ESP..
+      Serial.println("BRIDGE_UPDATE_SUCCESS");
+      server.send(200, "text/html", "Update success!");
+      break;
+    default:
+      Serial.println("BRIDGE_UPDATE_FAILED");
+      server.send(200, "text/html", "Update failed.");
+      break;
+  }
 }
 
 // TODO: make this non-blocking
