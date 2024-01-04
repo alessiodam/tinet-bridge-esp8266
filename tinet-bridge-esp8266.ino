@@ -1,5 +1,4 @@
 #include <ESP8266WiFi.h>
-#include <ESPAsyncTCP.h>
 #include <ESP8266WebServer.h>
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
@@ -27,8 +26,6 @@ struct Settings {
   char wifi_ssid[32];
   char wifi_pass[64];
   char password[64];
-  unsigned long transferred_packets;
-  float total_mb;
 };
 
 Settings settings;
@@ -140,6 +137,7 @@ void handleSetupSaveConfig() {
   String html = "WiFi set up success, your bridge will reboot and connect to wifi<b>";
   html += "If WiFi connect failed after 10 seconds, your bridge will boot up again in setup mode and you will need to re-do the setup steps";
   server.send(200, "text/html", html);
+  delay(200);
   ESP.restart();
 }
 
@@ -150,6 +148,8 @@ void handleReset() {
   delay(1000);
   digitalWrite(RED_LED, LOW);
   server.send(200, "text/html", "Reset to factory settings successful. <a href='/'>Go to Management Page</a>");
+  delay(200);
+  ESP.restart();
 }
 
 void handleRoot() {
@@ -159,8 +159,7 @@ void handleRoot() {
   } else {
     String html = "<html><body>";
     html += "<h2>Management Page</h2>";
-    html += "<p>Transferred Packets: " + String(settings.transferred_packets) + "</p>";
-    html += "<p>Total Megabytes: " + String(settings.total_mb) + "</p>";
+    html =+ "<h3>more will come here later</h3><br>";
     html += "<form action='/setpassword' method='post'>";
     html += "<label>Password (please do this on your local network for better security! Max 64 chars.): </label>";
     html += "<input type='password' name='password'/>";
@@ -187,6 +186,8 @@ void handleSavePassword() {
 
 void handleUpdate() {
   // IN DEVELOPMENT
+  Serial.println("BRIDGE_UPDATING");
+  
   digitalWrite(BLUE_LED, HIGH);
   delay(250);
   digitalWrite(GREEN_LED, HIGH);
@@ -195,8 +196,6 @@ void handleUpdate() {
   delay(250);
   digitalWrite(RED_LED, HIGH);
   delay(250);
-  
-  Serial.println("BRIDGE_UPDATING");
   
   t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_client, "github.com", 443, "/tkbstudios/tinet-bridge-esp8266/releases/download/latest/tinet-bridge-esp8266.bin");
   switch (update_ret) {
@@ -223,11 +222,9 @@ void handleUpdate() {
 // TODO: make this non-blocking
 void handleTCPToSerial() {
   if (wifi_client.available() && Serial.available()) {
-    String serial_data = Serial.readStringUntil('\n');
-    int bytes_read = 0;
-    settings.transferred_packets++;
-    settings.total_mb += bytes_read / 1024.0 / 1024.0;    
-    // show the user that data is being transferred
+    String tcp_data = Serial.readStringUntil('\n');
+    tcp_data.trim();
+    // transfer the data to SRL
     flashLED(BLUE_LED, 10);
   }
 }
@@ -243,6 +240,7 @@ void handleSerialToTCP() {
         Serial.println("TCP_CONNECTED");
       }
     }
+    serial_data = "";
     Serial.flush();
   }
 }
