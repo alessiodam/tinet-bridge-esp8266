@@ -25,5 +25,5 @@ jobs:
           cli-compile-flags: |
             - -e
 
-      - name: ls dirs
-        run: ls build/esp8266.esp8266.nodemcuv2
+      - name: cat bin
+        run: cat build/esp8266.esp8266.nodemcuv2/tinet-bridge-esp8266.ino.bin
