@@ -1,17 +1,22 @@
 name: Test Compile
 on: push
 jobs:
- compile-and-release:
-   runs-on: ubuntu-latest
-   steps:
-   - uses: actions/checkout@v2
-   - run: ls
-   - name: Compile and release
-     uses: arduino/compile-sketches@v1
-     with:
-       fqbn: 'esp8266:esp8266'
-       librairies: |
-        - name: ESPAsyncTCP
-        - name: ESP8266WiFi
-        - name: ESP8266httpUpdate
-        - name: ESP8266WebServer
+  compile-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: cd ..
+      - name: Compile and release
+        uses: arduino/compile-sketches@v1
+        with:
+          platforms: |
+            - source-url: "http://arduino.esp8266.com/stable/package_esp8266com_index.json"
+              name: "esp8266:esp8266"
+          fqbn: 'esp8266:esp8266'
+          sketch-paths: |
+            - "tinet-bridge-esp8266"
+          librairies: |
+            - name: ESPAsyncTCP
+            - name: ESP8266WiFi
+            - name: ESP8266httpUpdate
+            - name: ESP8266WebServer
