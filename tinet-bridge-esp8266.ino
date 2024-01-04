@@ -5,6 +5,8 @@
 #include <EEPROM.h>
 #include <ESP8266httpUpdate.h>
 
+#include "htmls.h"
+
 #define SERIAL_BAUDRATE 115200
 #define TINET_HUB_HOST "tinethub.tkbstudios.com"
 #define TINET_HUB_PORT 2052
@@ -60,6 +62,7 @@ void setup() {
   EEPROM.get(0, eepromdataaddresszero);
 
   if (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero)) {
+    digitalWrite(YELLOW_LED, HIGH);
     digitalWrite(GREEN_LED, HIGH);
     Serial.println("BRIDGE_SET_UP_WIFI");
 
@@ -96,6 +99,7 @@ void setup() {
   Serial.println("LOCAL_IP_ADDR:" + WiFi.localIP().toString());
   
   server.on("/", HTTP_GET, handleRoot);
+  server.on("/setpassword", HTTP_GET, handleSetPasswordPage);
   server.on("/savepassword", HTTP_POST, handleSavePassword);
   server.on("/reset", HTTP_POST, handleReset);
   server.on("/update", HTTP_POST, handleUpdate);
@@ -113,18 +117,7 @@ void loop() {
 
 void handleSetupRoot() {
   flashLED(GREEN_LED, 10);
-  String html = "<html><body>";
-  html += "<h2>TINET Bridge WiFi Setup</h2>";
-  html += "<form action='/saveconfig' method='post'>";
-  html += "<label>SSID (max. 32 chars): </label>";
-  html += "<input type='text' name='ssid'/><br>";
-  html += "<label>Password (max. 64 chars): </label>";
-  html += "<input type='password' name='password'/><br>";
-  html += "<input type='submit' value='Set'/></form><br><br><br>";
-  html += "<form action='/reset' method='post'>";
-  html += "<input type='submit' value='Reset to Factory Settings' onclick='return confirm(\"Are you sure?\");'/></form>";
-  html += "</body></html>";
-  server.send(200, "text/html", html);
+  server.send(200, "text/html", SETUP_ROOT_PAGE_HTML);
 }
 
 void handleSetupSaveConfig() {
@@ -134,11 +127,9 @@ void handleSetupSaveConfig() {
   String newPassword = server.arg("password").c_str();;
   newSSID.toCharArray(settings.wifi_ssid, sizeof(settings.wifi_ssid));
   newPassword.toCharArray(settings.wifi_pass, sizeof(settings.wifi_pass));
-  saveSettings();
-  
-  String html = "WiFi set up success, your bridge will reboot and connect to wifi<b>";
-  html += "If WiFi connect failed after 10 seconds, your bridge will boot up again in setup mode and you will need to re-do the setup steps";
-  server.send(200, "text/html", html);
+  saveSettings();  
+
+  server.send(200, "text/html", SETUP_SAVE_CONFIG_HTML);
   delay(200);
   ESP.restart();
 }
@@ -149,7 +140,7 @@ void handleReset() {
   resetToFactorySettings();
   delay(1000);
   digitalWrite(RED_LED, LOW);
-  server.send(200, "text/html", "Reset to factory settings successful. <a href='/'>Go to Management Page</a>");
+  server.send(200, "text/html", RESET_HTML);
   delay(200);
   ESP.restart();
 }
@@ -157,20 +148,15 @@ void handleReset() {
 void handleRoot() {
   flashLED(GREEN_LED, 10);
   if (strlen(settings.password) == 0) {
-    server.send(200, "text/html", "Please set a password <a href='/setpassword'>here</a>.");
+    server.send(200, "text/html", ROOT_NO_PASSWORD_HTML);
   } else {
-    String html = "<html><body>";
-    html += "<h2>Management Page</h2>";
-    html =+ "<h3>more will come here later</h3><br>";
-    html += "<form action='/setpassword' method='post'>";
-    html += "<label>Password (please do this on your local network for better security! Max 64 chars.): </label>";
-    html += "<input type='password' name='password'/>";
-    html += "<input type='submit' value='Set'/></form>";
-    html += "<form action='/reset' method='post'>";
-    html += "<input type='submit' value='Reset to Factory Settings' onclick='return confirm(\"Are you sure?\");'/></form>";
-    html += "</body></html>";
-    server.send(200, "text/html", html);
+    server.send(200, "text/html", ROOT_HTML);
   }
+}
+
+void handleSetPasswordPage() {
+  flashLED(GREEN_LED, 10);
+  server.send(200, "text/html", SET_PASSWORD_HTML);
 }
 
 void handleSavePassword() {
@@ -178,7 +164,7 @@ void handleSavePassword() {
   String newPassword = server.arg("password").c_str();
   newPassword.toCharArray(settings.password, sizeof(settings.password));
   saveSettings();
-  server.send(200, "text/html", "Password set successfully. <a href='/'>Go to Management Page</a>");
+  server.send(200, "text/html", SET_PASSWORD_SUCCESS_HTML);
 }
 
 void handleUpdate() {
@@ -198,20 +184,20 @@ void handleUpdate() {
   switch (update_ret) {
     case HTTP_UPDATE_FAILED:
       Serial.println("BRIDGE_UPDATE_FAILED");
-      server.send(200, "text/html", "Update failed.");
+      server.send(200, "text/html", UPDATE_FAILED_HTML);
       break;
     case HTTP_UPDATE_NO_UPDATES:
       Serial.println("BRIDGE_NO_UPDATES_AVAILABLE");
-      server.send(200, "text/html", "No updates available!");
+      server.send(200, "text/html", NO_UPDATES_AVAILABLE_HTML);
       break;
     case HTTP_UPDATE_OK:
       // might not get called because the update function reboots the ESP..
       Serial.println("BRIDGE_UPDATE_SUCCESS");
-      server.send(200, "text/html", "Update success!");
+      server.send(200, "text/html", UPDATE_SUCCESS_HTML);
       break;
     default:
-      Serial.println("BRIDGE_UPDATE_FAILED_UNKNOWN");
-      server.send(200, "text/html", "Update failed.");
+      Serial.println("BRIDGE_UPDATE_FAILED");
+      server.send(200, "text/html", UPDATE_FAILED_HTML);
       break;
   }
   digitalWrite(BLUE_LED, LOW);
