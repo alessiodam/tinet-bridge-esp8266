@@ -26,7 +26,4 @@ jobs:
             - -e
 
       - name: ls dirs
-        run: ls build
-
-      - name: cat compiled bin
-        run: cat build/esp8266.esp8266.nodemcuv2
+        run: ls build/esp8266.esp8266.nodemcuv2
