@@ -25,6 +25,7 @@ jobs:
             - name: ESP8266WiFi
             - name: ESP8266httpUpdate
             - name: ESP8266WebServer
+            - name: NTPClient
           cli-compile-flags: |
             - -e
 

@@ -4,6 +4,8 @@
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
 #include <ESP8266httpUpdate.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
 
 #include "htmls.h"
 
@@ -13,14 +15,16 @@
 
 #define NO_OTA_NETWORK
 
-uint8_t YELLOW_LED = D2;
-uint8_t BLUE_LED = D5;
-uint8_t GREEN_LED = D6;
-uint8_t RED_LED = D8;
+const uint8_t YELLOW_LED = 5;  // D1 on NodeMCU
+const uint8_t BLUE_LED = 4;     // D2 on NodeMCU
+const uint8_t GREEN_LED = 14;   // D5 on NodeMCU
+const uint8_t RED_LED = 12;     // D6 on NodeMCU
 
 WiFiClient wifi_client;
 int wifi_status = WL_IDLE_STATUS;
 WiFiClient tcp_client;
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP);
 
 IPAddress cloudflare_dns(1, 1, 1, 1);
 IPAddress google_dns(8, 8, 8, 8);
@@ -31,12 +35,15 @@ struct Settings {
   char wifi_ssid[32];
   char wifi_pass[64];
   char password[64];
+  long utc_offset_seconds;
+  bool reboot_setup_mode;
 };
 
 Settings settings;
 
 void setup() {
   Serial.begin(SERIAL_BAUDRATE);
+  Serial.setTimeout(1000);
   EEPROM.begin(sizeof(Settings));
 
   pinMode(BLUE_LED, OUTPUT);
@@ -61,7 +68,7 @@ void setup() {
   float eepromdataaddresszero;
   EEPROM.get(0, eepromdataaddresszero);
 
-  if (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero)) {
+  if (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero) || settings.reboot_setup_mode == true) {
     digitalWrite(YELLOW_LED, HIGH);
     digitalWrite(GREEN_LED, HIGH);
     Serial.println("BRIDGE_SET_UP_WIFI");
@@ -75,13 +82,16 @@ void setup() {
     server.on("/reset", HTTP_POST, handleReset);
     server.begin();
     
-    while (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero)) {
+    while (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero) || settings.reboot_setup_mode == true) {
       server.handleClient();
     }
   }
 
   //WiFi.setDNS(cloudflare_dns, google_dns);
   Serial.println("WIFI_CONNECTING");
+  unsigned long wifi_connect_start_time = millis();
+  unsigned long wifi_connect_current_time = millis();
+  unsigned long wifi_connect_elapsed_time = 0;
   wifi_status = WiFi.begin(settings.wifi_ssid, settings.wifi_pass);
   
   while (wifi_status != WL_CONNECTED) {
@@ -90,6 +100,18 @@ void setup() {
     delay(100);
     digitalWrite(GREEN_LED, LOW);
     delay(100);
+    wifi_connect_current_time = millis();
+    wifi_connect_elapsed_time = wifi_connect_current_time - wifi_connect_start_time;
+    if (wifi_connect_elapsed_time >= 10000) {
+      digitalWrite(GREEN_LED, LOW);
+      digitalWrite(RED_LED, HIGH);
+      Serial.println("BRIDGE_REBOOT_TO_SETUP");
+      settings.reboot_setup_mode = true;
+      saveSettings();
+      
+      delay(2000);
+      ESP.restart();
+    }
   }
   
   Serial.println("WIFI_CONNECTED");
@@ -97,6 +119,9 @@ void setup() {
   flashLED(GREEN_LED, 200);
   digitalWrite(YELLOW_LED, HIGH);
   Serial.println("LOCAL_IP_ADDR:" + WiFi.localIP().toString());
+
+  timeClient.begin();
+  timeClient.update();
   
   server.on("/", HTTP_GET, handleRoot);
   server.on("/setpassword", HTTP_GET, handleSetPasswordPage);
@@ -104,13 +129,16 @@ void setup() {
   server.on("/reset", HTTP_POST, handleReset);
   server.on("/update", HTTP_POST, handleUpdate);
   server.begin();
+
+  connectToTCPServer();
 }
 
 void loop() {
   server.handleClient();
   if (tcp_client.connected()) {
-    Serial.println("TCP_CONNECTED");
-  } else if (Serial.available() && !tcp_client.connected()) {
+    handleSerialToTCP();
+    handleTCPToSerial();
+  } else if (!tcp_client.connected()) {
     handleSerialToTCP();
   }
 }
@@ -127,6 +155,8 @@ void handleSetupSaveConfig() {
   String newPassword = server.arg("password").c_str();;
   newSSID.toCharArray(settings.wifi_ssid, sizeof(settings.wifi_ssid));
   newPassword.toCharArray(settings.wifi_pass, sizeof(settings.wifi_pass));
+  settings.reboot_setup_mode = false;
+  
   saveSettings();  
 
   server.send(200, "text/html", SETUP_SAVE_CONFIG_HTML);
@@ -205,29 +235,57 @@ void handleUpdate() {
   digitalWrite(RED_LED, LOW);
 }
 
-// TODO: make this non-blocking
+bool connectToTCPServer() {
+  unsigned long tcp_connect_start_time = millis();
+  unsigned long tcp_connect_current_time = millis();
+  unsigned long tcp_connect_elapsed_time = 0;
+  tcp_client.connect(TINET_HUB_HOST, TINET_HUB_PORT);
+  while (!tcp_client.connected()) {
+    tcp_connect_elapsed_time = tcp_connect_current_time - tcp_connect_start_time;
+    if (tcp_connect_elapsed_time > 5000) {
+      // timed out
+      return false;
+    }
+  }
+  return true;
+}
+
 void handleTCPToSerial() {
-  if (wifi_client.available() && Serial.available()) {
-    String tcp_data = Serial.readStringUntil('\n');
-    tcp_data.trim();
-    // transfer the data to SRL
-    flashLED(BLUE_LED, 10);
+  if (tcp_client.connected()) {
+    int available_in_tcp = tcp_client.available();
+
+    if (available_in_tcp > 0) {
+      flashLED(BLUE_LED, 10);
+      
+      while (tcp_client.available()) {
+        char c = tcp_client.read();
+        Serial.write(c);
+      }
+    }
   }
 }
 
-// TODO: make this non-blocking
 void handleSerialToTCP() {
-  while (Serial.available()) {
+  if (Serial.available() != 0) {
+    flashLED(BLUE_LED, 10);
     String serial_data = Serial.readStringUntil('\n');
-    serial_data.trim();
-    // for some reason, this spams the serial device with TCP_CONNECTED
+    
     if (!tcp_client.connected() && serial_data == "CONNECT_TCP") {
-      if (tcp_client.connect(TINET_HUB_HOST, TINET_HUB_PORT)) {
+      if (connectToTCPServer()) {
         Serial.println("TCP_CONNECTED");
+      } else {
+        Serial.println("TCP_CONNECT_TIMED_OUT");
       }
+    } else if (serial_data == "GET_TIME") {
+      Serial.print("CURRENT_TIME:");
+      Serial.println(timeClient.getFormattedTime());
+    } else if (tcp_client.connected()) {
+      tcp_client.println(serial_data);
+    } else if (tcp_client.connected() && serial_data == "CONNECT_TCP") {
+      Serial.println("TCP_ALREADY_CONNECTED");
     }
+    
     serial_data = "";
-    Serial.flush();
   }
 }
 
