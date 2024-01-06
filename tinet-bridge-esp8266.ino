@@ -6,6 +6,8 @@
 #include <ESP8266httpUpdate.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
+#include <DNSServer.h>
+#include <ESP8266mDNS.h>
 
 #include "htmls.h"
 
@@ -31,15 +33,38 @@ IPAddress google_dns(8, 8, 8, 8);
 
 ESP8266WebServer server(80);
 
+const byte DNS_PORT = 53;
+DNSServer dnsServer;
+
+IPAddress apIP(192, 168, 1, 1);
+IPAddress netMsk(255, 255, 255, 0);
+
 struct Settings {
   char wifi_ssid[32];
   char wifi_pass[64];
   char password[64];
   long utc_offset_seconds;
-  bool reboot_setup_mode;
+  bool boot_setup_mode;
 };
 
 Settings settings;
+
+
+void handleSetupRoot();
+void handleSetupSaveConfig();
+void handleReset();
+void handleRoot();
+void handleSetPasswordPage();
+void handleSavePassword();
+void handleUpdate();
+bool connectToTCPServer();
+void handleTCPToSerial();
+void handleSerialToTCP();
+void loadSettings();
+void saveSettings();
+void resetToFactorySettings();
+void flashLED(uint8_t led_to_flash, int delay_to_flash);
+
 
 void setup() {
   Serial.begin(SERIAL_BAUDRATE);
@@ -68,21 +93,37 @@ void setup() {
   float eepromdataaddresszero;
   EEPROM.get(0, eepromdataaddresszero);
 
-  if (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero) || settings.reboot_setup_mode == true) {
+  if (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero) || settings.boot_setup_mode == true) {
     digitalWrite(YELLOW_LED, HIGH);
     digitalWrite(GREEN_LED, HIGH);
     Serial.println("BRIDGE_SET_UP_WIFI");
 
     WiFi.disconnect();
     WiFi.mode(WIFI_AP);
+    WiFi.softAPConfig(apIP, apIP, netMsk);
     WiFi.softAP("TINETbridge", "12345678");
+
+    /* Setup the DNS server redirecting all the domains to the apIP */
+    dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+    dnsServer.start(DNS_PORT, "*", apIP);
     
     server.on("/", HTTP_GET, handleSetupRoot);
     server.on("/saveconfig", HTTP_POST, handleSetupSaveConfig);
     server.on("/reset", HTTP_POST, handleReset);
+    server.on("/generate_204", handleSetupRoot);  // Android captive portal. Maybe not needed. Might be handled by notFound handler.
+    server.on("/fwlink", handleSetupRoot);        // Microsoft captive portal. Maybe not needed. Might be handled by notFound handler.
+    server.onNotFound(handleSetupRoot);           // idk testing things out :p
+
+    if (!MDNS.begin("tinetbridge")) {
+      flashLED(RED_LED, 500);
+    } else {
+      MDNS.addService("http", "tcp", 80);
+    }
+    
     server.begin();
     
-    while (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero) || settings.reboot_setup_mode == true) {
+    while (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero) || settings.boot_setup_mode == true) {
+      dnsServer.processNextRequest();
       server.handleClient();
     }
   }
@@ -106,7 +147,7 @@ void setup() {
       digitalWrite(GREEN_LED, LOW);
       digitalWrite(RED_LED, HIGH);
       Serial.println("BRIDGE_REBOOT_TO_SETUP");
-      settings.reboot_setup_mode = true;
+      settings.boot_setup_mode = true;
       saveSettings();
       
       delay(2000);
@@ -145,6 +186,11 @@ void loop() {
 
 void handleSetupRoot() {
   flashLED(GREEN_LED, 10);
+  
+  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  server.sendHeader("Pragma", "no-cache");
+  server.sendHeader("Expires", "-1");
+  
   server.send(200, "text/html", SETUP_ROOT_PAGE_HTML);
 }
 
@@ -155,7 +201,7 @@ void handleSetupSaveConfig() {
   String newPassword = server.arg("password").c_str();;
   newSSID.toCharArray(settings.wifi_ssid, sizeof(settings.wifi_ssid));
   newPassword.toCharArray(settings.wifi_pass, sizeof(settings.wifi_pass));
-  settings.reboot_setup_mode = false;
+  settings.boot_setup_mode = false;
   
   saveSettings();  
 
@@ -209,11 +255,18 @@ void handleUpdate() {
   delay(250);
   digitalWrite(RED_LED, HIGH);
   delay(250);
+
+  BearSSL::WiFiClientSecure wifi_update_client;
+  bool mfln = wifi_update_client.probeMaxFragmentLength("www.github.com", 443, 1024);
+  if (mfln) {
+    wifi_update_client.setBufferSizes(1024, 1024);
+  }
   
-  t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_client, "github.com", 80, "/tkbstudios/tinet-bridge-esp8266/releases/latest/download/tinet-bridge-esp8266.ino.bin");
+  t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_update_client, "www.github.com", 443, "/tkbstudios/tinet-bridge-esp8266/releases/latest/download/tinet-bridge-esp8266.ino.bin");
   switch (update_ret) {
     case HTTP_UPDATE_FAILED:
       Serial.println("BRIDGE_UPDATE_FAILED");
+      Serial.println(ESPhttpUpdate.getLastErrorString().c_str());
       server.send(200, "text/html", UPDATE_FAILED_HTML);
       break;
     case HTTP_UPDATE_NO_UPDATES:
@@ -224,10 +277,6 @@ void handleUpdate() {
       // might not get called because the update function reboots the ESP..
       Serial.println("BRIDGE_UPDATE_SUCCESS");
       server.send(200, "text/html", UPDATE_SUCCESS_HTML);
-      break;
-    default:
-      Serial.println("BRIDGE_UPDATE_FAILED");
-      server.send(200, "text/html", UPDATE_FAILED_HTML);
       break;
   }
   digitalWrite(BLUE_LED, LOW);
