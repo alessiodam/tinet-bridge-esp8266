@@ -3,11 +3,13 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
+#include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <DNSServer.h>
 #include <ESP8266mDNS.h>
+#include <CertStoreBearSSL.h>
 
 #include "htmls.h"
 
@@ -17,7 +19,7 @@
 
 #define NO_OTA_NETWORK
 
-const uint8_t YELLOW_LED = 5;  // D1 on NodeMCU
+const uint8_t YELLOW_LED = 5;   // D1 on NodeMCU
 const uint8_t BLUE_LED = 4;     // D2 on NodeMCU
 const uint8_t GREEN_LED = 14;   // D5 on NodeMCU
 const uint8_t RED_LED = 12;     // D6 on NodeMCU
@@ -27,6 +29,8 @@ int wifi_status = WL_IDLE_STATUS;
 WiFiClient tcp_client;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
+
+BearSSL::CertStore certStore;
 
 IPAddress cloudflare_dns(1, 1, 1, 1);
 IPAddress google_dns(8, 8, 8, 8);
@@ -128,7 +132,6 @@ void setup() {
     }
   }
 
-  //WiFi.setDNS(cloudflare_dns, google_dns);
   Serial.println("WIFI_CONNECTING");
   unsigned long wifi_connect_start_time = millis();
   unsigned long wifi_connect_current_time = millis();
@@ -261,8 +264,9 @@ void handleUpdate() {
   if (mfln) {
     wifi_update_client.setBufferSizes(1024, 1024);
   }
-  
-  t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_update_client, "www.github.com", 443, "/tkbstudios/tinet-bridge-esp8266/releases/latest/download/tinet-bridge-esp8266.ino.bin");
+  wifi_update_client.setCertStore(&certStore);
+   
+  t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_update_client, "https://github.com/tkbstudios/tinet-bridge-esp8266/releases/latest/download/tinet-bridge-esp8266.ino.bin");
   switch (update_ret) {
     case HTTP_UPDATE_FAILED:
       Serial.println("BRIDGE_UPDATE_FAILED");
