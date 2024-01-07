@@ -1,9 +1,9 @@
-name: build and release
+name: Build And Release firmware.bin
 
 on: workflow_dispatch
 
 jobs:
-  compile-and-release:
+  build-and-release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -20,7 +20,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tinet-bridge-esp8266
+          name: firmware
           path: .pio/build/nodemcuv2/firmware.bin
 
       - name: Release
