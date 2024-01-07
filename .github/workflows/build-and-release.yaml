@@ -1,34 +1,38 @@
 name: Build And Release firmware.bin
 
 on:
- push:
- workflow_dispatch:
+  push:
+  workflow_dispatch:
 
 jobs:
- build-and-release:
-   runs-on: ubuntu-latest
-   steps:
-     - uses: actions/checkout@v2
-     
-     - name: Setup build dir
-       run: mkdir build
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
 
-     - name: Compile and release
-       uses: platformio/github-action@v2
-       with:
-         platform: espressif8266
-         board: nodemcuv2
-         project_dir: '.'
-     
-     - name: Upload artifact
-       uses: actions/upload-artifact@v4
-       with:
-         name: firmware
-         path: .pio/build/nodemcuv2/firmware.bin
+      - name: Set up Python
+        uses: actions/setup-python@v1
 
-     - name: Release
-       uses: softprops/action-gh-release@v1
-       with:
-         files: .pio/build/nodemcuv2/firmware.bin
-         tag_name: ${{ github.run_number }}
-         token: ${{ secrets.CUSTOM_GITHUB_TOKEN }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Install platformIO libraries
+        run: pio lib install
+
+      - name: Run PlatformIO
+        run: platformio run
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: .pio/build/nodemcuv2/firmware.bin
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: .pio/build/nodemcuv2/firmware.bin
+          tag_name: ${{ github.run_number }}
+          token: ${{ secrets.CUSTOM_GITHUB_TOKEN }}
