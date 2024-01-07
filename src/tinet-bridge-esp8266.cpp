@@ -269,7 +269,7 @@ void handleUpdate() {
   wifi_update_client.setInsecure();
 
   HTTPClient https_client;
-  if (https_client.begin(UPDATE_URL)) {
+  if (https_client.begin(wifi_update_client, UPDATE_URL)) {
     Serial.println("HTTPS connection success");
     int http_code = https_client.GET();
     Serial.print("HTTP code: ");
