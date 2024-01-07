@@ -16,6 +16,7 @@
 #define SERIAL_BAUDRATE 115200
 #define TINET_HUB_HOST "tinethub.tkbstudios.com"
 #define TINET_HUB_PORT 2052
+#define UPDATE_URL "https://github.com/tkbstudios/tinet-bridge-esp8266/releases/latest/download/firmware.bin"
 
 #define NO_OTA_NETWORK
 
@@ -265,8 +266,17 @@ void handleUpdate() {
     wifi_update_client.setBufferSizes(1024, 1024);
   }
   wifi_update_client.setCertStore(&certStore);
+  wifi_update_client.setInsecure();
+
+  HTTPClient https_client;
+  if (https_client.begin(UPDATE_URL)) {
+    Serial.println("HTTPS connection success");
+    int http_code = https_client.GET();
+    Serial.print("HTTP code: ");
+    Serial.println(http_code);
+  }
    
-  t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_update_client, "https://github.com/tkbstudios/tinet-bridge-esp8266/releases/latest/download/firmware.bin");
+  t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_update_client, UPDATE_URL);
   switch (update_ret) {
     case HTTP_UPDATE_FAILED:
       Serial.println("BRIDGE_UPDATE_FAILED");
