@@ -275,6 +275,7 @@ void handleUpdate() {
     Serial.print("HTTP code: ");
     Serial.println(http_code);
   }
+  // https_client.setFollowRedirects(true);
    
   t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_update_client, UPDATE_URL);
   switch (update_ret) {
