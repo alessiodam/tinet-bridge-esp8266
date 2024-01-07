@@ -8,6 +8,7 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <CertStoreBearSSL.h>
+
 #include "htmls.h"
 
 #define SERIAL_BAUDRATE 115200
@@ -115,6 +116,9 @@ void setup() {
     }
   }
 
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
+  
   Serial.println("WIFI_CONNECTING");
   unsigned long wifi_connect_start_time = millis();
   unsigned long wifi_connect_current_time = millis();
