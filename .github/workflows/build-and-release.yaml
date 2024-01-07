@@ -1,7 +1,6 @@
 name: build and release
 
-on:
-  workflow_dispatch:
+on: workflow_dispatch
 
 jobs:
   compile-and-release:
