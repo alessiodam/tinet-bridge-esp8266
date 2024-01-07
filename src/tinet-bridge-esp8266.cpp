@@ -266,7 +266,7 @@ void handleUpdate() {
   }
   wifi_update_client.setCertStore(&certStore);
    
-  t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_update_client, "https://github.com/tkbstudios/tinet-bridge-esp8266/releases/latest/download/tinet-bridge-esp8266.ino.bin");
+  t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_update_client, "https://github.com/tkbstudios/tinet-bridge-esp8266/releases/latest/download/firmware.bin");
   switch (update_ret) {
     case HTTP_UPDATE_FAILED:
       Serial.println("BRIDGE_UPDATE_FAILED");

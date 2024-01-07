@@ -1,6 +1,6 @@
 name: build and release
+
 on:
-  push:
   workflow_dispatch:
 
 jobs:
@@ -8,37 +8,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-
-      - name: setup build dir
+      
+      - name: Setup build dir
         run: mkdir build
 
       - name: Compile and release
-        uses: arduino/compile-sketches@v1.1.0
+        uses: platformio/github-action@v2
         with:
-          platforms: |
-            - source-url: "http://arduino.esp8266.com/stable/package_esp8266com_index.json"
-              name: "esp8266:esp8266"
-          fqbn: 'esp8266:esp8266:nodemcuv2'
-          sketch-paths: |
-            - "./tinet-bridge-esp8266.ino"
-          librairies: |
-            - name: ESP8266WiFi
-            - name: ESP8266httpUpdate
-            - name: ESP8266WebServer
-            - name: NTPClient
-          cli-compile-flags: |
-            - -e
-
+          platform: espressif8266
+          board: nodemcuv2
+      
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: tinet-bridge-esp8266
-          path: build/esp8266.esp8266.nodemcuv2/tinet-bridge-esp8266.ino.bin
+          path: .pio/build/nodemcuv2/firmware.bin
 
       - name: Release
         uses: softprops/action-gh-release@v1
-        if: "contains(github.event.head_commit.message, 'releasebin')"
         with:
-          files: build/esp8266.esp8266.nodemcuv2/tinet-bridge-esp8266.ino.bin
+          files: .pio/build/nodemcuv2/firmware.bin
           tag_name: ${{ github.run_number }}
           token: ${{ secrets.CUSTOM_GITHUB_TOKEN }}
