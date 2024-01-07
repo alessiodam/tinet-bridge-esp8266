@@ -283,25 +283,13 @@ void handleUpdate()
   delay(250);
 
   BearSSL::WiFiClientSecure wifi_update_client;
-  bool mfln = wifi_update_client.probeMaxFragmentLength("www.github.com", 443, 1024);
-  if (mfln)
-  {
-    wifi_update_client.setBufferSizes(1024, 1024);
-  }
-  wifi_update_client.setCertStore(&certStore);
   wifi_update_client.setInsecure();
 
-  HTTPClient https_client;
-  if (https_client.begin(wifi_update_client, UPDATE_URL))
-  {
-    Serial.println("HTTPS connection success");
-    int http_code = https_client.GET();
-    Serial.print("HTTP code: ");
-    Serial.println(http_code);
-  }
-  // https_client.setFollowRedirects(true);
-
+  ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  ESPhttpUpdate.setLedPin(BLUE_LED, true);
+  ESPhttpUpdate.rebootOnUpdate(false);
   t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_update_client, UPDATE_URL);
+
   switch (update_ret)
   {
   case HTTP_UPDATE_FAILED:
@@ -314,9 +302,10 @@ void handleUpdate()
     server.send(200, "text/html", NO_UPDATES_AVAILABLE_HTML);
     break;
   case HTTP_UPDATE_OK:
-    // might not get called because the update function reboots the ESP..
     Serial.println("BRIDGE_UPDATE_SUCCESS");
     server.send(200, "text/html", UPDATE_SUCCESS_HTML);
+    delay(200);
+    ESP.restart();
     break;
   }
   digitalWrite(BLUE_LED, LOW);
@@ -383,6 +372,11 @@ void handleSerialToTCP()
     {
       Serial.print("CURRENT_TIME:");
       Serial.println(timeClient.getFormattedTime());
+    }
+    else if (serial_data == "GET_LOCAL_IP_ADDRESS")
+    {
+      Serial.print("LOCAL_IP_ADDR:");
+      Serial.println(WiFi.localIP().toString());
     }
     else if (tcp_client.connected())
     {
