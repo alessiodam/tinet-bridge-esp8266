@@ -31,6 +31,7 @@ WiFiClient tcp_client;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
 
+BearSSL::WiFiClientSecure wifi_update_client;
 BearSSL::CertStore certStore;
 
 IPAddress cloudflare_dns(1, 1, 1, 1);
@@ -75,6 +76,7 @@ void setup()
   Serial.begin(SERIAL_BAUDRATE);
   Serial.setTimeout(1000);
   EEPROM.begin(sizeof(Settings));
+  wifi_update_client.setInsecure();
 
   pinMode(BLUE_LED, OUTPUT);
   pinMode(GREEN_LED, OUTPUT);
@@ -282,12 +284,10 @@ void handleUpdate()
   digitalWrite(RED_LED, HIGH);
   delay(250);
 
-  BearSSL::WiFiClientSecure wifi_update_client;
-  wifi_update_client.setInsecure();
-
   ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   ESPhttpUpdate.setLedPin(BLUE_LED, true);
   ESPhttpUpdate.rebootOnUpdate(false);
+
   t_httpUpdate_return update_ret = ESPhttpUpdate.update(wifi_update_client, UPDATE_URL);
 
   switch (update_ret)
