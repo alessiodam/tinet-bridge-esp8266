@@ -1,4 +1,4 @@
-const char SETUP_ROOT_PAGE_HTML[] PROGMEM = R"=====(
+const char SETUP_ROOT_PAGE_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 
@@ -65,11 +65,13 @@ const char SETUP_ROOT_PAGE_HTML[] PROGMEM = R"=====(
 </head>
 
 <body>
-  <h2>TINET Bridge WiFi Setup</h2>
+  <h2>TINET Bridge Setup</h2>
   <form action='/saveconfig' method='post'>
-    <label><img class="wifi-icon" src="wifi-icon.png" alt="WiFi"> SSID (max. 32 chars): </label>
-    <input type='text' name='ssid' /><br>
-    <label><img class="wifi-icon" src="password-icon.png" alt="Password"> Password (max. 64 chars): </label>
+    <label>WiFi SSID (max. 32 chars): </label>
+    <input type='text' name='wifi_ssid' /><br>
+    <label>WiFi Password (max. 64 chars): </label>
+    <input type='password' name='wifi_password' /><br>
+    <label>Bridge Admin Password (max. 64 chars): </label>
     <input type='password' name='password' /><br>
     <input type='submit' value='Set' /></form><br><br><br>
     <form action='/reset' method='post'>
@@ -78,9 +80,9 @@ const char SETUP_ROOT_PAGE_HTML[] PROGMEM = R"=====(
 </body>
 
 </html>
-)=====";
+)rawliteral";
 
-const char SETUP_SAVE_CONFIG_HTML[] PROGMEM = R"=====(
+const char SETUP_SAVE_CONFIG_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -109,9 +111,9 @@ const char SETUP_SAVE_CONFIG_HTML[] PROGMEM = R"=====(
     <p>If WiFi connection fails after 10 seconds, your bridge will boot up again in setup mode, and you will need to re-do the setup steps.</p>
 </body>
 </html>
-)=====";
+)rawliteral";
 
-const char RESET_HTML[] PROGMEM = R"=====(
+const char RESET_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -137,9 +139,9 @@ const char RESET_HTML[] PROGMEM = R"=====(
     <p><b>Reset to factory settings successful.</b> <a href='/'>Go to Management Page</a></p>
 </body>
 </html>
-)=====";
+)rawliteral";
 
-const char ROOT_HTML[] PROGMEM = R"=====(
+const char ROOT_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 
@@ -188,10 +190,8 @@ const char ROOT_HTML[] PROGMEM = R"=====(
 
 <body>
   <h2>TINET Bridge Dashboard</h2>
-  <form action='/setpassword' method='post'>
-    <label>Password (please do this on your local network for better security! Max 64 chars.): </label>
-    <input type='password' name='password' />
-    <input type='submit' value='Set Password' />
+  <form action='/setpassword' method='get'>
+    <input type='submit' value='Set a new password' />
   </form>
 
   <form action='/update' method='post'>
@@ -204,37 +204,9 @@ const char ROOT_HTML[] PROGMEM = R"=====(
 </body>
 
 </html>
-)=====";
+)rawliteral";
 
-const char ROOT_NO_PASSWORD_HTML[] PROGMEM = R"=====(
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
-            text-align: center;
-            margin: 50px;
-        }
-
-        a {
-            text-decoration: none;
-            color: #3498db;
-            font-weight: bold;
-        }
-    </style>
-    <title>Password Setting</title>
-</head>
-<body>
-    <p>Please set a password <a href='/setpassword'>here</a>.</p>
-</body>
-</html>
-)=====";
-
-const char SET_PASSWORD_HTML[] PROGMEM = R"=====(
+const char SET_PASSWORD_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 
@@ -287,9 +259,9 @@ const char SET_PASSWORD_HTML[] PROGMEM = R"=====(
 </body>
 
 </html>
-)=====";
+)rawliteral";
 
-const char SET_PASSWORD_SUCCESS_HTML[] PROGMEM = R"=====(
+const char SET_PASSWORD_SUCCESS_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 
@@ -318,9 +290,9 @@ const char SET_PASSWORD_SUCCESS_HTML[] PROGMEM = R"=====(
 </body>
 
 </html>
-)=====";
+)rawliteral";
 
-const char UPDATE_FAILED_HTML[] PROGMEM = R"=====(
+const char UPDATE_FAILED_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 
@@ -347,9 +319,9 @@ const char UPDATE_FAILED_HTML[] PROGMEM = R"=====(
 </body>
 
 </html>
-)=====";
+)rawliteral";
 
-const char UPDATE_SUCCESS_HTML[] PROGMEM = R"=====(
+const char UPDATE_SUCCESS_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 
@@ -376,9 +348,9 @@ const char UPDATE_SUCCESS_HTML[] PROGMEM = R"=====(
 </body>
 
 </html>
-)=====";
+)rawliteral";
 
-const char NO_UPDATES_AVAILABLE_HTML[] PROGMEM = R"=====(
+const char NO_UPDATES_AVAILABLE_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 
@@ -405,4 +377,20 @@ const char NO_UPDATES_AVAILABLE_HTML[] PROGMEM = R"=====(
 </body>
 
 </html>
-)=====";
+)rawliteral";
+
+const char LOGGED_OUT_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body>
+  <p>Logged out! <a href="/">return to homepage</a>.</p>
+  <p><strong>Note:</strong> close all web browser tabs to complete the logout process.</p>
+</body>
+
+</html>
+)rawliteral";

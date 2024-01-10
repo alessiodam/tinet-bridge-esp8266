@@ -8,6 +8,7 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <CertStoreBearSSL.h>
+#include <ArduinoJson.h>
 
 #include "htmls.h"
 
@@ -15,6 +16,7 @@
 #define TINET_HUB_HOST "tinethub.tkbstudios.com"
 #define TINET_HUB_PORT 2052
 #define UPDATE_URL "https://github.com/tkbstudios/tinet-bridge-esp8266/releases/latest/download/firmware.bin"
+#define UPTIME_ROBOT_GET_MONITORS_API_URL "https://stats.uptimerobot.com/api/getMonitor/ogn6nhlkwn?m=796151298"
 
 #define NO_OTA_NETWORK
 
@@ -30,6 +32,7 @@ WiFiUDP ntpUDP;
 NTPClient time_client(ntpUDP);
 
 BearSSL::WiFiClientSecure wifi_github_client;
+BearSSL::WiFiClientSecure http_wifi_client;
 BearSSL::CertStore certStore;
 
 IPAddress cloudflare_dns(1, 1, 1, 1);
@@ -50,6 +53,10 @@ struct Settings {
 
 Settings settings;
 
+// this variable is automatic, don't change it
+bool debug_messages_allowed = true;
+bool initial_tcp_connect_done = false;
+
 void handleSetupRoot();
 void handleSetupSaveConfig();
 void handleReset();
@@ -65,6 +72,7 @@ void saveSettings();
 void resetToFactorySettings();
 void flashLED(uint8_t led_to_flash, int delay_to_flash);
 void update_NTP_time_offset_from_settings();
+void ArduinoOTA_finished_callback();
 
 void setup() {
   Serial.begin(SERIAL_BAUDRATE);
@@ -87,6 +95,14 @@ void setup() {
   digitalWrite(GREEN_LED, LOW);
   digitalWrite(YELLOW_LED, LOW);
   digitalWrite(RED_LED, LOW);
+  
+  // TODO: remove when adding github certs
+  wifi_github_client.setInsecure();
+  http_wifi_client.setInsecure();
+
+  ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  ESPhttpUpdate.setLedPin(BLUE_LED, true);
+  ESPhttpUpdate.rebootOnUpdate(false);
 
   loadSettings();
 
@@ -94,9 +110,9 @@ void setup() {
   EEPROM.get(0, eepromdataaddresszero);
 
   if (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero) || settings.boot_setup_mode == true) {
+    Serial.println("WiFi setup needed");
     digitalWrite(YELLOW_LED, HIGH);
     digitalWrite(GREEN_LED, HIGH);
-    Serial.println("BRIDGE_SET_UP_WIFI");
 
     WiFi.disconnect();
     WiFi.mode(WIFI_AP);
@@ -105,11 +121,15 @@ void setup() {
     AP_ssid += String(random(1, 50) * 11);
     WiFi.softAP(AP_ssid, "12345678");
 
+    Serial.print("WiFI AP SSID: ");
+    Serial.println(AP_ssid);
+
     server.on("/", HTTP_GET, handleSetupRoot);
     server.on("/saveconfig", HTTP_POST, handleSetupSaveConfig);
     server.on("/reset", HTTP_POST, handleReset);
 
     server.begin();
+    Serial.println("WebServer started!");
 
     while (strlen(settings.wifi_ssid) == 0 || strlen(settings.wifi_pass) == 0 || isnan(eepromdataaddresszero) || settings.boot_setup_mode == true) {
       server.handleClient();
@@ -119,10 +139,11 @@ void setup() {
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
   
-  Serial.println("WIFI_CONNECTING");
+  Serial.println("Connecting to WiFi");
   unsigned long wifi_connect_start_time = millis();
   unsigned long wifi_connect_current_time = millis();
   unsigned long wifi_connect_elapsed_time = 0;
+  const unsigned long wifi_connect_timeout = 15000;
   wifi_status = WiFi.begin(settings.wifi_ssid, settings.wifi_pass);
 
   while (wifi_status != WL_CONNECTED) {
@@ -133,10 +154,9 @@ void setup() {
     delay(100);
     wifi_connect_current_time = millis();
     wifi_connect_elapsed_time = wifi_connect_current_time - wifi_connect_start_time;
-    if (wifi_connect_elapsed_time >= 10000) {
+    if (wifi_connect_elapsed_time >= wifi_connect_timeout) {
       digitalWrite(GREEN_LED, LOW);
       digitalWrite(RED_LED, HIGH);
-      Serial.println("BRIDGE_REBOOT_TO_SETUP");
       settings.boot_setup_mode = true;
       saveSettings();
 
@@ -145,21 +165,16 @@ void setup() {
     }
   }
 
-  wifi_github_client.setInsecure();
-  ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-  ESPhttpUpdate.setLedPin(BLUE_LED, true);
-  ESPhttpUpdate.rebootOnUpdate(false);
-
-  Serial.println("WIFI_CONNECTED");
+  Serial.println("WiFi connected!");
   digitalWrite(GREEN_LED, LOW);
   flashLED(GREEN_LED, 200);
   digitalWrite(YELLOW_LED, HIGH);
-  Serial.println("LOCAL_IP_ADDR:" + WiFi.localIP().toString());
+  Serial.println("Local IP address:" + WiFi.localIP().toString());
 
-  
   time_client.begin();
   time_client.update();
 
+  // TODO: MAKE WEB AUTHENTICATION WORK!
   server.on("/", HTTP_GET, handleRoot);
   server.on("/setpassword", HTTP_GET, handleSetPasswordPage);
   server.on("/savepassword", HTTP_POST, handleSavePassword);
@@ -167,8 +182,60 @@ void setup() {
   server.on("/update", HTTP_POST, handleUpdate);
   server.begin();
 
+  Serial.println("Starting ArduinoOTA for local network updates");
+  Serial.println("Use the password set on the web UI");
+  ArduinoOTA.setPassword(settings.password);
+  ArduinoOTA.setRebootOnSuccess(false);
+  ArduinoOTA.onEnd(ArduinoOTA_finished_callback);
+  ArduinoOTA.begin();
+
+  Serial.println("Connecting to TINET HUB..");
   // TODO: remove when V9.0.0 backend goes live
-  connectToTCPServer();
+  if (!connectToTCPServer()) {
+    Serial.println("Connection to TINET HUB FAILED!!");
+    Serial.println("Trying to check if it's a server issue..");
+
+    HTTPClient uptime_robot_http_client;
+    uptime_robot_http_client.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+
+    uptime_robot_http_client.begin(http_wifi_client, UPTIME_ROBOT_GET_MONITORS_API_URL);
+    const int http_code = uptime_robot_http_client.GET();
+    if (http_code != 200) {
+      Serial.println("Failed to connect to Uptime Robot API!");
+      Serial.println("Rebooting bridge and hoping it'll fix it!");
+      delay(1000);
+      ESP.restart();
+    }
+    const String http_response = uptime_robot_http_client.getString();
+    uptime_robot_http_client.end();
+
+    JsonDocument uptime_json;
+    deserializeJson(uptime_json, http_response);
+
+    if (strcmp(uptime_json["status"], "ok") == 0) {
+      // HUB online
+      digitalWrite(RED_LED, HIGH);
+      Serial.println("TINET HUB is online, it is probably an issue on your end.");
+      Serial.println("Rebooting the ESP and hoping it will work..");
+      delay(5000);
+      ESP.restart();
+    } else {
+      // HUB offline
+      Serial.println("TINET HUB is offline, don't worry it'll get back online soon!");
+      while (true) {
+        flashLED(RED_LED, 1000);
+        Serial.println("TINET HUB OFFLINE!!!");
+      }
+    }
+  }
+  Serial.println("Connected to TINET HUB successfully!!");
+
+  delay(500);
+
+  // tell calc bridge is there :p
+  // IMPORTANT: from now on, DO NOT SEND ANY DEBUG MESSAGES
+  debug_messages_allowed = false;
+  Serial.println("BRIDGE_CONNECTED");
 }
 
 void loop() {
@@ -183,27 +250,25 @@ void loop() {
 
 void handleSetupRoot() {
   flashLED(GREEN_LED, 10);
-
-  server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-  server.sendHeader("Pragma", "no-cache");
-  server.sendHeader("Expires", "-1");
-
   server.send(200, "text/html", SETUP_ROOT_PAGE_HTML);
 }
 
 void handleSetupSaveConfig() {
   flashLED(GREEN_LED, 10);
 
-  String newSSID = server.arg("ssid").c_str();
-  String newPassword = server.arg("password").c_str();;
-  newSSID.toCharArray(settings.wifi_ssid, sizeof(settings.wifi_ssid));
-  newPassword.toCharArray(settings.wifi_pass, sizeof(settings.wifi_pass));
-  settings.boot_setup_mode = false;
+  String newWiFiSSID = server.arg("wifi_ssid").c_str();
+  String newWiFiPassword = server.arg("wifi_password").c_str();
+  String newPassword = server.arg("password").c_str();
 
+  newWiFiSSID.toCharArray(settings.wifi_ssid, sizeof(settings.wifi_ssid));
+  newWiFiPassword.toCharArray(settings.wifi_pass, sizeof(settings.wifi_pass));
+  newPassword.toCharArray(settings.password, sizeof(settings.password));
+
+  settings.boot_setup_mode = false;
   saveSettings();
 
   server.send(200, "text/html", SETUP_SAVE_CONFIG_HTML);
-  delay(200);
+  delay(500);
   ESP.restart();
 }
 
@@ -220,11 +285,7 @@ void handleReset() {
 
 void handleRoot() {
   flashLED(GREEN_LED, 10);
-  if (strlen(settings.password) == 0) {
-    server.send(200, "text/html", ROOT_NO_PASSWORD_HTML);
-  } else {
-    server.send(200, "text/html", ROOT_HTML);
-  }
+  server.send(200, "text/html", ROOT_HTML);
 }
 
 void handleSetPasswordPage() {
@@ -252,7 +313,6 @@ void handleUpdate() {
   case HTTP_UPDATE_FAILED:
     digitalWrite(RED_LED, HIGH);
     Serial.println("BRIDGE_UPDATE_FAILED");
-    Serial.println(ESPhttpUpdate.getLastErrorString().c_str());
     server.send(200, "text/html", UPDATE_FAILED_HTML);
     delay(250);
     digitalWrite(BLUE_LED, LOW);
@@ -290,18 +350,11 @@ void handleUpdate() {
 }
 
 bool connectToTCPServer() {
-  unsigned long tcp_connect_start_time = millis();
-  unsigned long tcp_connect_current_time = millis();
-  unsigned long tcp_connect_elapsed_time = 0;
   tcp_client.connect(TINET_HUB_HOST, TINET_HUB_PORT);
-  while (!tcp_client.connected()) {
-    tcp_connect_elapsed_time = tcp_connect_current_time - tcp_connect_start_time;
-    if (tcp_connect_elapsed_time > 5000) {
-      // timed out
-      return false;
-    }
+  if (tcp_client.connected()) {
+    initial_tcp_connect_done = true;
   }
-  return true;
+  return tcp_client.connected();
 }
 
 void handleTCPToSerial() {
@@ -316,6 +369,12 @@ void handleTCPToSerial() {
         Serial.write(c);
       }
     }
+  } else if (!tcp_client.connected() && initial_tcp_connect_done) {
+    if (connectToTCPServer()) {
+      Serial.println("TCP_CONNECTED");
+    } else {
+      Serial.println("TCP_CONNECT_FAIL");
+    }
   }
 }
 
@@ -325,11 +384,16 @@ void handleSerialToTCP() {
     flashLED(BLUE_LED, 10);
     String serial_data = Serial.readStringUntil('\n');
 
+    // TODO: remove `Serial.println("TCP_CONNECTED");` and put comment back when V9.0.0 backend goes live
     if (!tcp_client.connected() && serial_data == "CONNECT_TCP") {
-      if (connectToTCPServer()) {
-        Serial.println("TCP_CONNECTED");
+      if (!tcp_client.connected()) {
+        if (connectToTCPServer()) {
+          Serial.println("TCP_CONNECTED");
+        } else {
+          Serial.println("TCP_CONNECT_TIMED_OUT");
+        }
       } else {
-        Serial.println("TCP_CONNECT_TIMED_OUT");
+        Serial.println("TCP_CONNECTED");
       }
     } else if (serial_data == "GET_TIME") {
       Serial.print("CURRENT_TIME:");
@@ -371,4 +435,11 @@ void flashLED(uint8_t led_to_flash, int delay_to_flash) {
 void update_NTP_time_offset_from_settings() {
   time_client.setTimeOffset(settings.utc_offset_hours * 3600);
   time_client.update();
+}
+
+void ArduinoOTA_finished_callback() {
+  Serial.println("ArduinoOTA has finished updating!");
+  Serial.println("Rebooting the ESP..");
+  delay(1000);
+  ESP.restart();
 }
